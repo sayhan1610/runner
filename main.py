@@ -5,50 +5,79 @@ pygame.init()
 
 WIDTH, HEIGHT = 800, 600
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption('Infinite Runner Game')
+pygame.display.set_caption('Runner')
 
 WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
+GRAY = (50, 50, 50)
 RED = (255, 0, 0)
+GREEN = (0, 255, 50)
+BLUE = (0, 0, 255)
 
 GROUND_HEIGHT = HEIGHT - 50
 OBSTACLE_WIDTH = 50
 OBSTACLE_HEIGHT = 50
-JUMP_HEIGHT = 150
-ROLL_WIDTH = 50
+LOW_OBSTACLE_HEIGHT = 30
+LOW_OBSTACLE_Y = GROUND_HEIGHT - 80
+HIGH_OBSTACLE_HEIGHT = 70
+
+PLAYER_WIDTH, PLAYER_HEIGHT = 50, 60
 ROLL_HEIGHT = 30
-
-player_width, player_height = 50, 60
-player_x = 100
-player_y = GROUND_HEIGHT - player_height
+PLAYER_X = 100
+player_y = GROUND_HEIGHT - PLAYER_HEIGHT
 player_velocity_y = 0
-gravity = 0.5
-jumping = False
-rolling = False
-
-obstacles = []
-obstacle_timer = 0
-obstacle_frequency = 1500
-
-clock = pygame.time.Clock()
+GRAVITY = 0.5
+JUMP_VELOCITY = -10
+DUCK_VELOCITY = 5
 FPS = 60
 
-def draw_player(x, y):
-    pygame.draw.rect(screen, BLACK, [x, y, player_width, player_height])
+background = pygame.image.load('images/bg.png')
+background = pygame.transform.scale(background, (WIDTH, HEIGHT))
 
-def draw_obstacle(x, y, width, height):
-    pygame.draw.rect(screen, RED, [x, y, width, height])
+player_x = PLAYER_X
+jumping = False
+ducking = False
+obstacles = []
+obstacle_frequency = 1500
+score = 0
+
+clock = pygame.time.Clock()
+
+def draw_player(x, y, is_ducking):
+    height = ROLL_HEIGHT if is_ducking else PLAYER_HEIGHT
+    pygame.draw.rect(screen, WHITE, [x, y + (PLAYER_HEIGHT - height) if is_ducking else y, PLAYER_WIDTH, height])
+
+def draw_obstacle(x, y, width, height, color):
+    pygame.draw.rect(screen, color, [x, y, width, height])
+
+def update_score():
+    global score
+    score += 1
+
+def draw_score():
+    font = pygame.font.Font(None, 36)
+    text = font.render(f'Score: {score}', True, WHITE)
+    screen.blit(text, (10, 10))
+
+def handle_obstacle_collision(player_rect, obstacle_rect, obs_type):
+    if player_rect.colliderect(obstacle_rect):
+        if obs_type == 'low' and not ducking:
+            return True
+        elif obs_type == 'high' and not jumping:
+            return True
+    return False
 
 def game_loop():
-    global player_x, player_y, player_velocity_y, jumping, rolling
-    global obstacles, obstacle_timer, obstacle_frequency
+    global player_y, player_velocity_y, jumping, ducking
+    global obstacles, obstacle_frequency, score
 
     running = True
     last_obstacle_time = pygame.time.get_ticks()
     
     while running:
         dt = clock.tick(FPS)
-        screen.fill(WHITE)
+        screen.blit(background, (0, 0))
+        
+        pygame.draw.rect(screen, GRAY, [0, GROUND_HEIGHT, WIDTH, HEIGHT - GROUND_HEIGHT])
         
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -56,40 +85,57 @@ def game_loop():
 
         keys = pygame.key.get_pressed()
         
-        if keys[pygame.K_SPACE] and not jumping and not rolling:
+        if keys[pygame.K_UP] and not jumping and not ducking:
             jumping = True
-            player_velocity_y = -10
+            player_velocity_y = JUMP_VELOCITY
         
-        if keys[pygame.K_DOWN] and not jumping and not rolling:
-            rolling = True
+        if keys[pygame.K_DOWN] and not jumping:
+            ducking = True
+        else:
+            ducking = False
         
         if jumping:
-            player_velocity_y += gravity
+            player_velocity_y += GRAVITY
             player_y += player_velocity_y
-            if player_y >= GROUND_HEIGHT - player_height:
-                player_y = GROUND_HEIGHT - player_height
+            if player_y >= GROUND_HEIGHT - PLAYER_HEIGHT:
+                player_y = GROUND_HEIGHT - PLAYER_HEIGHT
                 jumping = False
                 player_velocity_y = 0
         
-        if rolling:
-            rolling = False
+        player_height = ROLL_HEIGHT if ducking else PLAYER_HEIGHT
+        player_actual_y = player_y + (PLAYER_HEIGHT - ROLL_HEIGHT) if ducking else player_y
+        player_rect = pygame.Rect(player_x, player_actual_y, PLAYER_WIDTH, player_height)
         
         if pygame.time.get_ticks() - last_obstacle_time > obstacle_frequency:
             obs_x = WIDTH
-            obs_y = GROUND_HEIGHT - OBSTACLE_HEIGHT
-            obstacles.append([obs_x, obs_y])
+            obs_type = random.choice(['normal', 'low', 'high'])
+            if obs_type == 'normal':
+                obs_y = GROUND_HEIGHT - OBSTACLE_HEIGHT
+                obs_height = OBSTACLE_HEIGHT
+                obs_color = RED
+            elif obs_type == 'low':
+                obs_y = LOW_OBSTACLE_Y
+                obs_height = LOW_OBSTACLE_HEIGHT
+                obs_color = GREEN
+            else:
+                obs_y = GROUND_HEIGHT - HIGH_OBSTACLE_HEIGHT
+                obs_height = HIGH_OBSTACLE_HEIGHT
+                obs_color = BLUE
+            obstacles.append([obs_x, obs_y, obs_height, obs_color, obs_type])
             last_obstacle_time = pygame.time.get_ticks()
         
-        obstacles = [[x - 5, y] for x, y in obstacles if x > -OBSTACLE_WIDTH]
+        obstacles = [[x - DUCK_VELOCITY, y, h, color, obs_type] for x, y, h, color, obs_type in obstacles if x > -OBSTACLE_WIDTH]
         
-        for obs_x, obs_y in obstacles:
-            draw_obstacle(obs_x, obs_y, OBSTACLE_WIDTH, OBSTACLE_HEIGHT)
-            if player_x + player_width > obs_x and player_x < obs_x + OBSTACLE_WIDTH:
-                if player_y + player_height > obs_y:
-                    if not jumping and not rolling:
-                        running = False
+        for obs_x, obs_y, obs_height, obs_color, obs_type in obstacles:
+            obstacle_rect = pygame.Rect(obs_x, obs_y, OBSTACLE_WIDTH, obs_height)
+            draw_obstacle(obs_x, obs_y, OBSTACLE_WIDTH, obs_height, obs_color)
+            if handle_obstacle_collision(player_rect, obstacle_rect, obs_type):
+                running = False
         
-        draw_player(player_x, player_y)
+        update_score()
+        draw_score()
+        
+        draw_player(player_x, player_y, ducking)
         
         pygame.display.flip()
 
